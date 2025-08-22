@@ -29,6 +29,7 @@ cloud_llm = ChatOpenAI(
 # Data Augmentation
 ############################################
 
+# Embed all data 
 def retrieve_data(docs):
     all_documents = []  # Accumulate all documents
     for file in docs:   
@@ -43,6 +44,7 @@ embedding_model = HuggingFaceEmbeddings(
     model_name='all-MiniLM-L6-v2'
 )
 
+# Store it in a vector database
 vectorstore_db = Chroma.from_documents(
     persist_directory="vectorstore_db",
     documents=retrieve_data(["data/User_data.json"]),
@@ -52,8 +54,9 @@ vectorstore_db = Chroma.from_documents(
 vectordb = Chroma(
     persist_directory="vectorstore_db", embedding_function=embedding_model
 )
-vector_retriever = vectordb.as_retriever()
 
+# Interface that returns documents given an unstructured query - select the top 3 documents
+vector_retriever = vectordb.as_retriever(search_kwargs={"k": 3})
 
 ############################################
 
@@ -72,10 +75,6 @@ st.session_state.setdefault(
     []
 )
 
-# System message for priming AI beh avior.
-message = [{"role": "system", "content": "You are a helpful assistant.When appropriate, provide planning-oriented responses with actionable steps \
-             with key insights."}]
-
 # Iterate through the messages and print them on the console
 for msg in st.session_state["messages"]:
     # Print based on role and content
@@ -85,6 +84,23 @@ for msg in st.session_state["messages"]:
 prompt = st.chat_input("Type message here")
 
 if prompt:
+
+    # Searching the database with the user prompt
+    relevant_info = vector_retriever.get_relevant_documents(prompt)
+
+    # Extract the text content from the search result
+    retrieved_data = [data.page_content for data in relevant_info]
+
+    # System message for priming AI behavior.
+    message = [{"role": "system", "content": "You are a helpful assistant.When appropriate, provide planning-oriented responses with actionable steps \
+                with key insights."}]
+    
+    if(retrieve_data):
+        content_data = "\n".join(retrieved_data)
+        message.append({
+            "role": "system",
+            "content" : f"Relevant user information:\n{content_data}"
+        })
 
     # Store the user messages in a dictionary
     st.session_state["messages"].append(
@@ -100,7 +116,10 @@ if prompt:
 
     # For the chatbot to remember conversations
     for msg in st.session_state["messages"]:
-        message.append({"role": msg["role"], "content": msg["content"]})
+        message.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
 
     if cloud_box:
         llm = cloud_llm
