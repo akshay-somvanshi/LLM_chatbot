@@ -1,5 +1,10 @@
 from langchain_openai import ChatOpenAI
 import streamlit as st
+from langchain_text_splitters import RecursiveJsonSplitter
+from langchain_chroma import Chroma
+from sentence_transformers import SentenceTransformer
+from langchain_huggingface import HuggingFaceEmbeddings
+import json
 import os
 
 # Load From .env File
@@ -21,7 +26,36 @@ cloud_llm = ChatOpenAI(
     base_url = Remote_base_url
 )
 
-######################################
+# Data Augmentation
+############################################
+
+def retrieve_data(docs):
+    all_documents = []  # Accumulate all documents
+    for file in docs:   
+        with open(file, "r") as f:
+            data = json.loads(f.read())
+            splitter = RecursiveJsonSplitter(max_chunk_size=300)
+            documents = splitter.create_documents(texts=data, convert_lists=True)
+            all_documents.extend(documents)  # Add to collection
+    return all_documents
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name='all-MiniLM-L6-v2'
+)
+
+vectorstore_db = Chroma.from_documents(
+    persist_directory="vectorstore_db",
+    documents=retrieve_data(["data/User_data.json"]),
+    embedding=embedding_model,
+)
+
+vectordb = Chroma(
+    persist_directory="vectorstore_db", embedding_function=embedding_model
+)
+vector_retriever = vectordb.as_retriever()
+
+
+############################################
 
 # Set the UI title
 st.title("LLM ChatBot")
@@ -38,7 +72,9 @@ st.session_state.setdefault(
     []
 )
 
-# message = [{"role": "system", "content": "Respond with actionable, planning-oriented steps rather than only providing descriptive information."}]
+# System message for priming AI beh avior.
+message = [{"role": "system", "content": "You are a helpful assistant.When appropriate, provide planning-oriented responses with actionable steps \
+             with key insights."}]
 
 # Iterate through the messages and print them on the console
 for msg in st.session_state["messages"]:
@@ -62,18 +98,16 @@ if prompt:
     with st.chat_message("user"):
         st.write(prompt)
 
-    context = ""
-
     # For the chatbot to remember conversations
     for msg in st.session_state["messages"]:
-        context += msg["role"] + ": " + msg["content"]
+        message.append({"role": msg["role"], "content": msg["content"]})
 
     if cloud_box:
         llm = cloud_llm
     else:
         llm = local_llm
 
-    response = llm.invoke(context)
+    response = llm.invoke(message)
 
     # Store the LLM messages in a dictionary
     st.session_state["messages"].append(
