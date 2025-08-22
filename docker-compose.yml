@@ -1,0 +1,24 @@
+services:
+  # Frontend
+  ai-chat:
+    build: .
+    volumes: 
+      # Give access of current system directory to workdir 
+      - ./:/app
+    ports:
+      # Map system port to container port (must be 8501 for streamlit) 
+      - 8501:8501
+    environment:
+      - API_Key
+      - Local_base_url
+      - Remote_base_url
+    # Add dependency so frontend is using LLM
+    depends_on:
+      - llm
+  
+  # Backend
+  llm:
+    provider:
+      type: model
+      options:
+        model: ai/qwen2.5
