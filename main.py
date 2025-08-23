@@ -8,6 +8,109 @@ from langchain.schema import Document
 import json
 import os
 import time
+import sqlite3
+
+# Database initialisation for storing conversations
+############################################
+
+# Interact with SQLite database held in file conversations.db
+connection = sqlite3.connect("conversations.db")
+
+# Object that allows to send SQL statements 
+cursor = connection.cursor()
+
+# Database design: 
+# - Conversation table [conversationId(Primary id), user_name(User who created the conversation) and title(First message of conversation)]
+# - Messages table [conversationId(Foreign id), message_id(Primary id), sender(AI or user), content(the message) and Timestamp]
+
+def init_db():
+    """
+    Create the tables if they dont exist
+    """
+    cursor.execute("""CREATE TABLE IF NOT EXISTS conversations (
+                   ConversationId INTEGER PRIMARY KEY AUTOINCREMENT,
+                   user_name TEXT NOT NULL,
+                   title TEXT 
+                    )
+                """)
+    
+    cursor.execute("""CREATE TABLE IF NOT EXISTS messages(
+                   message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   ConversationId INTEGER,
+                   sender TEXT NOT NULL,
+                   content TEXT NOT NULL,
+                   time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                   FOREIGN KEY(ConversationId) REFERENCES conversations(ConversationId) 
+                    )
+                """)
+    
+    connection.commit()
+
+def create_conversation(user_name, title):
+    """
+    Create new conversation with the given user
+    """
+    # ? is the placeholder for variables
+    cursor.execute("INSERT INTO conversations (user_name, title) VALUES (?, ?)", 
+                   user_name, title)
+    
+    connection.commit()
+    return cursor.lastrowid  # Returns the auto-generated ID
+
+def save_message(conversation_id, content, sender):
+    cursor.execute("INSERT INTO messages (conversation_id, sender, content) VALUES (?, ?, ?)",
+                   conversation_id, sender, content)
+    
+    connection.commit()
+
+def load_conversation_messages(conversation_id):
+    """
+    Load all messages for a conversation
+    """
+    cursor.execute("""
+                   SELECT content, sender, timestamp 
+                   FROM messages where ConversationId = ?
+                   ORDER BY timestamp """, conversation_id)
+    
+    return cursor.fetchall()
+
+def load_user_conversation(user_name):
+    """
+    Load all conversations for the user
+    """
+    cursor.execute("SELECT ConversationId, title from conversations WHERE user_name = ?", user_name)
+
+    return cursor.fetchall()
+
+init_db()
+
+def debug_show_all_conversations():
+    """Debug function to see all conversations"""
+    cursor.execute("SELECT * FROM conversations")
+    results = cursor.fetchall()
+    st.write("All conversations:", results)
+
+def debug_show_all_messages():
+    """Debug function to see all messages"""
+    cursor.execute("SELECT * FROM messages")
+    results = cursor.fetchall()
+    st.write("All messages:", results)
+
+def debug_test_database():
+    """Test creating conversation and message"""
+    # Test creating a conversation
+    conv_id = create_conversation("Alice Johnson", "Test Conversation")
+    st.write(f"Created conversation with ID: {conv_id}")
+    
+    # Test saving a message
+    save_message(conv_id, "user", "Hello, this is a test message")
+    save_message(conv_id, "assistant", "Hi! This is a test response")
+    
+    # Test loading messages
+    messages = load_conversation_messages(conv_id)
+    st.write("Messages:", messages)
+
+############################################
 
 # Load From .env File
 API_Key = os.environ.get("API_Key")
@@ -46,24 +149,32 @@ embedding_model = HuggingFaceEmbeddings(
     model_name='all-MiniLM-L6-v2'
 )
 
-# Store it in a vector database
-vectorstore_db = Chroma.from_documents(
-    persist_directory="vectorstore_db",
-    documents=retrieve_data(["data/User_data.json"]),
-    embedding=embedding_model,
-)
-
-vectordb = Chroma(
-    persist_directory="vectorstore_db", embedding_function=embedding_model
-)
+# Only create if directory doesn't exist
+if not os.path.exists("vectorstore_db"):
+    vectorstore_db = Chroma.from_documents(
+        persist_directory="vectorstore_db",
+        documents=retrieve_data(["data/User_data.json"]),
+        embedding=embedding_model,
+    )
+else:
+    # Just load the existing database
+    vectorstore_db = Chroma(
+        persist_directory="vectorstore_db", 
+        embedding_function=embedding_model
+    )
 
 # Interface that returns documents given an unstructured query - select the top 3 documents
-vector_retriever = vectordb.as_retriever(search_kwargs={"k": 3})
+vector_retriever = vectorstore_db.as_retriever(search_kwargs={"k": 3})
 
 ############################################
 
 cloud_box = st.checkbox(
     "Use Cloud LLM",
+    value = False
+)
+
+debug_db = st.checkbox(
+    "Debug db",
     value = False
 )
 
@@ -112,11 +223,17 @@ else:
         # Append the query with the user information to retrieve the correct data
         search_query = f"User: {st.session_state['user']}. Question: {prompt}"
 
-        # Searching the database with the user prompt
-        relevant_info = vector_retriever.get_relevant_documents(search_query)
+        # Searching the database with the user prompt3
+        relevant_info = vectorstore_db.similarity_search(search_query, k=5)
 
-        # Extract the text content from the search result
-        retrieved_data = [data.page_content for data in relevant_info]
+        # Filter to current user only
+        retrieved_data = []
+        for doc in relevant_info:
+            if current_user in doc.page_content:
+                # Extract the text content from the search result
+                retrieved_data.append(doc.page_content)
+                if len(retrieved_data) >= 3:  # Stop after finding 3 user-specific docs
+                    break
 
         # System message for priming AI behavior.
         message = [{"role": "system", "content": f"You are a helpful assistant. When appropriate, provide planning-oriented responses with actionable steps \
@@ -170,3 +287,8 @@ else:
         with st.chat_message("assistant"):
             st.write_stream(stream_data(response.content))
             # st.write(response.content)
+
+        if debug_db:
+            debug_test_database()
+            debug_show_all_conversations()
+            debug_show_all_messages()
