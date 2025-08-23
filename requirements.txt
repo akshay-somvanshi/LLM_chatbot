@@ -4,3 +4,4 @@ langchain_text_splitters
 langchain_chroma
 sentence_transformers
 langchain_huggingface
+langchain
