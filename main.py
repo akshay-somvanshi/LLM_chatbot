@@ -52,63 +52,38 @@ def create_conversation(user_name, title):
     """
     # ? is the placeholder for variables
     cursor.execute("INSERT INTO conversations (user_name, title) VALUES (?, ?)", 
-                   user_name, title)
+                   (user_name, title))
     
     connection.commit()
     return cursor.lastrowid  # Returns the auto-generated ID
 
 def save_message(conversation_id, content, sender):
-    cursor.execute("INSERT INTO messages (conversation_id, sender, content) VALUES (?, ?, ?)",
-                   conversation_id, sender, content)
+    cursor.execute("INSERT INTO messages (ConversationId, sender, content) VALUES (?, ?, ?)",
+                   (conversation_id, sender, content))
     
     connection.commit()
 
 def load_conversation_messages(conversation_id):
     """
-    Load all messages for a conversation
+    Load all messages for a conversation, ordered by timestamp
     """
     cursor.execute("""
-                   SELECT content, sender, timestamp 
-                   FROM messages where ConversationId = ?
-                   ORDER BY timestamp """, conversation_id)
-    
+        SELECT sender, content, time 
+        FROM messages 
+        WHERE ConversationId = ? 
+        ORDER BY time
+    """, (conversation_id,))
     return cursor.fetchall()
 
 def load_user_conversation(user_name):
     """
     Load all conversations for the user
     """
-    cursor.execute("SELECT ConversationId, title from conversations WHERE user_name = ?", user_name)
+    cursor.execute("SELECT ConversationId, title from conversations WHERE user_name = ?", (user_name,))
 
     return cursor.fetchall()
 
 init_db()
-
-def debug_show_all_conversations():
-    """Debug function to see all conversations"""
-    cursor.execute("SELECT * FROM conversations")
-    results = cursor.fetchall()
-    st.write("All conversations:", results)
-
-def debug_show_all_messages():
-    """Debug function to see all messages"""
-    cursor.execute("SELECT * FROM messages")
-    results = cursor.fetchall()
-    st.write("All messages:", results)
-
-def debug_test_database():
-    """Test creating conversation and message"""
-    # Test creating a conversation
-    conv_id = create_conversation("Alice Johnson", "Test Conversation")
-    st.write(f"Created conversation with ID: {conv_id}")
-    
-    # Test saving a message
-    save_message(conv_id, "user", "Hello, this is a test message")
-    save_message(conv_id, "assistant", "Hi! This is a test response")
-    
-    # Test loading messages
-    messages = load_conversation_messages(conv_id)
-    st.write("Messages:", messages)
 
 ############################################
 
@@ -168,13 +143,27 @@ vector_retriever = vectorstore_db.as_retriever(search_kwargs={"k": 3})
 
 ############################################
 
-cloud_box = st.checkbox(
-    "Use Cloud LLM",
-    value = False
-)
+def switch_conversation(conversation_id):
+    """Switch to a different conversation"""
+    st.session_state["current_conversation_id"] = conversation_id
+    
+    # Load messages from database
+    db_messages = load_conversation_messages(conversation_id)
+    st.session_state["messages"] = [
+        {"role": sender, "content": content} 
+        for sender, content, time in db_messages
+    ]
+    st.rerun()  # Refresh to show new conversation
 
-debug_db = st.checkbox(
-    "Debug db",
+def start_new_conversation():
+    """Start a fresh conversation"""
+    st.session_state["current_conversation_id"] = None
+    st.session_state["messages"] = []
+    st.rerun()  # Refresh to clear chat
+
+
+cloud_box = st.checkbox(
+    "Think deeper",
     value = False
 )
 
@@ -191,6 +180,12 @@ st.session_state.setdefault(
     ""
 )
 
+# Initialize conversation tracking
+st.session_state.setdefault(
+    "current_conversation_id",
+    None
+)
+
 # Set the UI title based on whether user name is known 
 if st.session_state["user"] == "":
     st.title("Enter your full name")
@@ -202,6 +197,26 @@ if st.session_state["user"] == "":
         st.rerun()
 else:
     st.title(f"Hello {st.session_state["user"]}! How can I help?")
+
+    # Filter to only include current user's data
+    current_user = st.session_state["user"]
+
+    # Load user's conversations for sidebar
+    user_conversations = load_user_conversation(current_user)
+
+    # Display conversations in sidebar
+    with st.sidebar:
+        st.header(f"{current_user}'s Conversations")
+        
+        # Show list of conversations
+        for conv_id, title in user_conversations:
+            if st.button(f"{title}", key=f"conv_{conv_id}"):
+                # Switch to this conversation
+                switch_conversation(conv_id)
+        
+        # Add "New Conversation" button
+        if st.button("New Conversation"):
+            start_new_conversation()
 
     # Iterate through the messages and print them on the console
     for msg in st.session_state["messages"]:
@@ -217,8 +232,17 @@ else:
             time.sleep(0.02)
 
     if prompt:
-        # Filter to only include current user's data
-        current_user = st.session_state["user"]
+
+        # Only create new conversation if none exists
+        if st.session_state["current_conversation_id"] is None:
+            conv_id = create_conversation(current_user, prompt[:50]) 
+            st.write(conv_id)
+            st.session_state["current_conversation_id"] = conv_id
+        else:
+            conv_id = st.session_state["current_conversation_id"]
+
+        # Save messages to current conversation
+        save_message(conv_id, prompt, "user")
 
         # Append the query with the user information to retrieve the correct data
         search_query = f"User: {st.session_state['user']}. Question: {prompt}"
@@ -283,12 +307,10 @@ else:
             }
         )
 
+        # Store response in messages db
+        save_message(conv_id, response.content, "assistant")
+
         # Pre-built assistant role
         with st.chat_message("assistant"):
             st.write_stream(stream_data(response.content))
             # st.write(response.content)
-
-        if debug_db:
-            debug_test_database()
-            debug_show_all_conversations()
-            debug_show_all_messages()
