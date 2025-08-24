@@ -115,7 +115,7 @@ def retrieve_data(docs):
     for file in docs:   
         with open(file, "r") as f:
             data = json.loads(f.read())
-            splitter = RecursiveJsonSplitter(max_chunk_size=900)
+            splitter = RecursiveJsonSplitter(max_chunk_size=1000)
             documents = splitter.create_documents(texts=data, convert_lists=True)
             all_documents.extend(documents)  # Add to collection
     return all_documents
@@ -141,7 +141,8 @@ else:
 # Interface that returns documents given an unstructured query - select the top 3 documents
 vector_retriever = vectorstore_db.as_retriever(search_kwargs={"k": 3})
 
-############################################
+# Helper functions
+#################################################
 
 def switch_conversation(conversation_id):
     """Switch to a different conversation"""
@@ -160,6 +161,13 @@ def start_new_conversation():
     st.session_state["current_conversation_id"] = None
     st.session_state["messages"] = []
     st.rerun()  # Refresh to clear chat
+
+def stream_data(response):
+    for word in response.split(" "):
+        yield word + " "
+        time.sleep(0.02)
+
+###################################################
 
 
 cloud_box = st.checkbox(
@@ -204,19 +212,27 @@ else:
     # Load user's conversations for sidebar
     user_conversations = load_user_conversation(current_user)
 
-    # Display conversations in sidebar
     with st.sidebar:
-        st.header(f"{current_user}'s Conversations")
+        st.header(f"{current_user}'s Chats")
         
-        # Show list of conversations
-        for conv_id, title in user_conversations:
-            if st.button(f"{title}", key=f"conv_{conv_id}"):
-                # Switch to this conversation
-                switch_conversation(conv_id)
-        
-        # Add "New Conversation" button
-        if st.button("New Conversation"):
+        # New Conversation Button (prominent)
+        if st.button("New Conversation", type="primary"):
             start_new_conversation()
+        
+        st.divider()
+        
+        # List existing conversations
+        if user_conversations:
+            st.subheader("Recent Conversations")
+            for conv_id, title in user_conversations:
+                # Highlight current conversation
+                if conv_id == st.session_state.get("current_conversation_id"):
+                    st.info(f"{title} (Current)")
+                else:
+                    if st.button(f"{title}", key=f"conv_{conv_id}"):
+                        switch_conversation(conv_id)
+        else:
+            st.info("No conversations yet. Start chatting to create one!")
 
     # Iterate through the messages and print them on the console
     for msg in st.session_state["messages"]:
@@ -226,17 +242,11 @@ else:
 
     prompt = st.chat_input("Type message here")
 
-    def stream_data(response):
-        for word in response.split(" "):
-            yield word + " "
-            time.sleep(0.02)
-
     if prompt:
 
         # Only create new conversation if none exists
         if st.session_state["current_conversation_id"] is None:
-            conv_id = create_conversation(current_user, prompt[:50]) 
-            st.write(conv_id)
+            conv_id = create_conversation(current_user, prompt[:50])
             st.session_state["current_conversation_id"] = conv_id
         else:
             conv_id = st.session_state["current_conversation_id"]
@@ -248,7 +258,7 @@ else:
         search_query = f"User: {st.session_state['user']}. Question: {prompt}"
 
         # Searching the database with the user prompt3
-        relevant_info = vectorstore_db.similarity_search(search_query, k=5)
+        relevant_info = vectorstore_db.similarity_search(search_query, k=4)
 
         # Filter to current user only
         retrieved_data = []
@@ -264,9 +274,12 @@ else:
                     with key insights."}]
         
         if retrieved_data:
-            st.sidebar.write("Retrieved Context:")
-            for i, data in enumerate(retrieved_data, 1):
-                st.sidebar.write(f"{i}. {data}")
+            # st.sidebar.write("Retrieved Context:")
+            # for i, data in enumerate(retrieved_data, 1):
+            #     st.sidebar.write(f"{i}. {data}")
+            with st.sidebar.expander("Retrieved Context", expanded=False):
+                for i, data in enumerate(retrieved_data, 1):
+                    st.write(f"{i}. {data}")
             content_data = "\n".join(retrieved_data)
             message.append({
                 "role": "system",
@@ -313,4 +326,3 @@ else:
         # Pre-built assistant role
         with st.chat_message("assistant"):
             st.write_stream(stream_data(response.content))
-            # st.write(response.content)
