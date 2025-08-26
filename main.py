@@ -91,17 +91,18 @@ init_db()
 API_Key = os.environ.get("API_Key")
 Local_base_url = os.environ.get("Local_base_url")
 Remote_base_url = os.environ.get("Remote_base_url")
+Cloud_model = os.environ.get("Cloud_model")
+Local_model = os.environ.get("Local_model")
 
 local_llm = ChatOpenAI(
-    # Same model as in Dockerfile
-    model = "ai/qwen2.5",
+    model = Local_model,
     # Even though it is not required we must pass the argument
     api_key = "No",
     base_url = Local_base_url
 )
 
 cloud_llm = ChatOpenAI(
-    model = "deepseek/deepseek-r1-0528-qwen3-8b:free",
+    model = Cloud_model,
     api_key = API_Key,
     base_url = Remote_base_url
 )
@@ -274,9 +275,6 @@ else:
                     with key insights."}]
         
         if retrieved_data:
-            # st.sidebar.write("Retrieved Context:")
-            # for i, data in enumerate(retrieved_data, 1):
-            #     st.sidebar.write(f"{i}. {data}")
             with st.sidebar.expander("Retrieved Context", expanded=False):
                 for i, data in enumerate(retrieved_data, 1):
                     st.write(f"{i}. {data}")

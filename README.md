@@ -48,8 +48,10 @@ cd llm-chatbot
 Create a .env file with your API credentials:
 ```bash
 API_Key=your_api_key_here
-Local_base_url=your_local_api_url (Docker model runner for example)
+Local_base_url=your_local_api_url #(Docker model runner for example)
 Remote_base_url=your_remote_api_url
+Local_model=your_local_model
+Cloud_model=your_cloud_model
 ```
 ### 2. Docker Setup
 Make sure Docker version is at 4.44.3 (otherwise we have "additional property provider not allowed" error)
