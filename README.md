@@ -53,6 +53,7 @@ Remote_base_url=your_remote_api_url
 ```
 ### 2. Docker Setup
 Make sure Docker version is at 4.44.3 (otherwise we have "additional property provider not allowed" error)
+
 Build and run the application:
 ```bash
 docker compose up --build
@@ -66,6 +67,7 @@ Navigate to: `http://localhost:8501`
 The application includes pre-tested user profiles for demonstration:
 - Alice Johnson
 - Bob Smith
+
 **Try logging in as either user to explore pre-existing conversations and see personalized responses based on their profiles!**
 
 ## Usage
@@ -153,7 +155,7 @@ Edit `data/User_data.json` to include new user profiles:
 ### Common Issues
 - **Docker compose error**: Update docker to version 4.44.3
 - **Database Locked**: Stop Docker containers before deleting vector database
-- **API Errors**: Verify OpenRouter model is available
+- **API Errors**: Verify API key is valid and LLM model is available
 
 ### Reset Instructions
 ```bash
